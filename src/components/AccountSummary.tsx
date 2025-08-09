@@ -1,4 +1,4 @@
-// components/AccountSummary.jsx
+"use client";
 import React from "react";
 import {
   ArrowTrendingUpIcon,
@@ -7,8 +7,22 @@ import {
   BuildingLibraryIcon,
 } from "@heroicons/react/24/outline";
 
-const AccountSummary = () => {
-  const accounts = [
+// Define allowed account types
+type AccountType = "checking" | "savings" | "credit" | "investment";
+
+// Define structure of an account
+interface Account {
+  id: number;
+  name: string;
+  number: string;
+  balance: number;
+  type: AccountType;
+  trend: "up" | "down";
+  trendValue: number;
+}
+
+const AccountSummary: React.FC = () => {
+  const accounts: Account[] = [
     {
       id: 1,
       name: "Checking Account",
@@ -47,7 +61,7 @@ const AccountSummary = () => {
     },
   ];
 
-  const getAccountIcon = (type) => {
+  const getAccountIcon = (type: AccountType) => {
     switch (type) {
       case "checking":
         return <BanknotesIcon className="h-6 w-6 text-blue-500" />;
