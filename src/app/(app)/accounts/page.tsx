@@ -1,63 +1,89 @@
 import { prisma } from "@/lib/db";
+import { requireSession } from "@/lib/session";
+import AccountSummary from "@/components/AccountSummary";
+import QuickActions from "@/components/QuickActions";
+import SecurityPanel from "@/components/SecurityPanel";
 import Link from "next/link";
-import { fmtUSD } from "@/lib/money";
 
-async function getAccountsWithBalance(userId: string) {
-  const accounts = await prisma.account.findMany({
-    where: { userId },
-    select: { id: true },
+function fmtUSD(cents: number) {
+  return (cents / 100).toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
   });
-  const results = [];
-  for (const a of accounts) {
-    const sum = await prisma.transaction.aggregate({
-      _sum: { amount: true },
-      where: { accountId: a.id },
-    });
-    results.push({ id: a.id, balance: sum._sum.amount ?? 0 });
-  }
-  return results;
 }
 
 export default async function AccountsPage() {
-  // TODO: replace with session user
-  // For now, show all accounts (mock) if no session
-  let accounts: { id: string; balance: number }[] = [];
-  try {
-    const { requireSession } = await import("@/lib/session");
-    const session = await requireSession();
-    accounts = await getAccountsWithBalance(session.user.id as string);
-  } catch {
-    accounts = await getAccountsWithBalance("demo");
-  }
+  const { user } = await requireSession();
+  const userId = (user as any).id as string;
+
+  const base = await prisma.account.findMany({
+    where: { userId },
+    select: { id: true, name: true, type: true, currency: true },
+    orderBy: { name: "asc" },
+  });
+
+  const accounts = await Promise.all(
+    base.map(async (a) => {
+      const agg = await prisma.transaction.aggregate({
+        where: { accountId: a.id },
+        _sum: { amount: true },
+      });
+      return { ...a, balance: agg._sum.amount ?? 0 };
+    })
+  );
+
+  const totalBalance = accounts.reduce((s, a) => s + (a.balance || 0), 0);
+
+  // choose first account for statement quick-link (optional)
+  const firstAccountId = accounts[0]?.id;
 
   return (
-    <div className="max-w-5xl mx-auto p-6">
-      <h1 className="text-2xl font-semibold mb-6">Accounts</h1>
-      <div className="space-y-4">
-        {accounts.map((a) => (
-          <Link
-            key={a.id}
-            href={`/accounts/${a.id}`}
-            className="block rounded border p-4 hover:bg-gray-50"
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="account-title">Account {a.id.slice(0, 6)}…</div>
-                <div className="account-currency">USD</div>
-                {/* <div className="account-number">#{a.accountNumber}</div> */}
-              </div>
-              <div className="account-balance">{fmtUSD(a.balance)}</div>
-            </div>
-          </Link>
-        ))}
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      {/* Left: Summary + Actions */}
+      <div className="lg:col-span-2 space-y-8">
+        <AccountSummary totalBalance={totalBalance} accounts={accounts} />
+        {/* Account list with better readability */}
+        <div className="bg-white rounded-2xl border shadow p-6">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-bold text-gray-900">All Accounts</h2>
+            <Link
+              href="/accounts/new"
+              className="px-3 py-2 rounded-md bg-blue-600 text-white font-medium hover:bg-blue-700"
+            >
+              New
+            </Link>
+          </div>
+          <div className="mt-4 divide-y">
+            {accounts.map((a) => (
+              <Link
+                key={a.id}
+                href={`/accounts/${a.id}`}
+                className="flex items-center justify-between py-3 hover:bg-gray-50 rounded-md px-2"
+              >
+                <div>
+                  <div className="text-lg font-semibold text-gray-900">
+                    {a.name}
+                  </div>
+                  <div className="text-sm text-gray-800">
+                    {a.type} • {a.currency || "USD"}
+                  </div>
+                </div>
+                <div className="text-2xl font-bold text-gray-900 tabular-nums">
+                  {fmtUSD(a.balance)}
+                </div>
+              </Link>
+            ))}
+            {accounts.length === 0 && (
+              <div className="py-6 text-gray-700">No accounts yet.</div>
+            )}
+          </div>
+        </div>
       </div>
-      <div className="mt-6">
-        <Link
-          href="/accounts/new"
-          className="inline-block px-4 py-2 bg-black text-white rounded"
-        >
-          Open New Account
-        </Link>
+
+      {/* Right: Quick Actions + Security */}
+      <div className="space-y-8">
+        <QuickActions firstAccountId={firstAccountId} />
+        <SecurityPanel />
       </div>
     </div>
   );

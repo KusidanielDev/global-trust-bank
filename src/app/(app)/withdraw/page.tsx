@@ -1,99 +1,49 @@
 import { prisma } from "@/lib/db";
-import { requireSession } from "@/lib/session";
-import SubmitButton from "@/components/SubmitButton";
 import { redirect } from "next/navigation";
 
 async function withdraw(formData: FormData) {
   "use server";
-  const { user } = await requireSession();
-  const userId = user.id as string;
-
-  const accountId = String(formData.get("accountId") || "");
-  const amountStr = String(formData.get("amount") || "0").replace(/[, ]/g, "");
-  const cents = Math.round(Number(amountStr) * 100);
-
-  if (!accountId || !Number.isFinite(cents) || cents <= 0) {
-    throw new Error("Invalid amount.");
-  }
-
-  const account = await prisma.account.findFirst({
-    where: { id: accountId, userId },
-  });
-  if (!account) throw new Error("Account not found.");
-
-  // Optional: enforce no negative after withdrawal (compute current balance)
-  const total = await prisma.transaction.aggregate({
-    where: { accountId },
-    _sum: { amount: true },
-  });
-  const balance = total._sum.amount ?? 0;
-  if (balance - cents < 0) {
-    throw new Error("Insufficient funds.");
-  }
-
+  const accountId = String(formData.get("accountId"));
+  const amount = parseFloat(String(formData.get("amount")));
+  if (!accountId || !Number.isFinite(amount) || amount<=0) return;
   await prisma.transaction.create({
     data: {
       accountId,
-      userId,
-      amount: -cents, // − for withdraw
-      // kind: "WITHDRAW",
-      // memo: "ATM withdrawal",
+      amount: -amount,
+      date: new Date(),
+      description: "Withdrawal",
+      category: "Withdrawal",
     },
+  });
+  // create notification
+  await prisma.notification.create({
+    data: {
+      userId: (await import("@/lib/session").then(m=>m.requireSession())).user.id as string,
+      title: `Withdrawal successful`,
+      body: `Your withdrawal was completed.`,
+    }
   });
 
   redirect(`/accounts/${accountId}`);
 }
 
 export default async function WithdrawPage() {
-  const { user } = await requireSession();
-  const accts = await prisma.account.findMany({
-    where: { userId: user.id as string },
-    select: { id: true, name: true, type: true },
-  });
-
+  const accounts = await prisma.account.findMany({ select: { id: true }});
   return (
-    <div className="max-w-lg mx-auto bg-white rounded-xl border shadow p-6">
-      <h1 className="text-2xl font-bold text-gray-900 mb-2">Withdraw</h1>
-      <p className="text-gray-800 mb-6">
-        Take money out from one of your accounts.
-      </p>
-
+    <div className="max-w-md mx-auto p-6">
+      <h1 className="text-2xl font-semibold mb-4">Withdraw</h1>
       <form action={withdraw} className="space-y-4">
         <div>
-          <label className="block text-gray-900 font-medium mb-1">
-            Account
-          </label>
-          <select
-            name="accountId"
-            className="w-full rounded border border-gray-300 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            required
-          >
-            {accts.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name} • {a.type}
-              </option>
-            ))}
+          <label className="block text-sm font-medium">Account</label>
+          <select name="accountId" className="mt-1 w-full border rounded p-2 text-gray-900 border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+            {accounts.map(a => <option key={a.id} value={a.id}>Account {a.id.slice(0,6)}…</option>)}
           </select>
         </div>
-
         <div>
-          <label className="block text-gray-900 font-medium mb-1">
-            Amount (USD)
-          </label>
-          <input
-            name="amount"
-            type="number"
-            step="0.01"
-            min="0.01"
-            placeholder="50.00"
-            className="w-full rounded border border-gray-300 p-2 text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            required
-          />
+          <label className="block text-sm font-medium">Amount (USD)</label>
+          <input name="amount" type="number" step="0.01" min="0.01" className="mt-1 w-full border rounded p-2 text-gray-900 placeholder-gray-500 border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" required />
         </div>
-
-        <SubmitButton className="px-4 py-2 rounded-md bg-blue-600 text-white font-medium hover:bg-blue-700 focus:ring-2 focus:ring-blue-500">
-          Withdraw
-        </SubmitButton>
+        <button className="w-full bg-black text-white rounded py-2">Withdraw</button>
       </form>
     </div>
   );

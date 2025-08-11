@@ -15,6 +15,15 @@ async function deposit(formData: FormData) {
       category: "Deposit",
     },
   });
+  // create notification
+  await prisma.notification.create({
+    data: {
+      userId: (await import("@/lib/session").then(m=>m.requireSession())).user.id as string,
+      title: `Deposit successful`,
+      body: `Your deposit was received.`,
+    }
+  });
+
   redirect(`/accounts/${accountId}`);
 }
 

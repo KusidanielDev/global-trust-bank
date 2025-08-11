@@ -15,6 +15,15 @@ async function withdraw(formData: FormData) {
       category: "Withdrawal",
     },
   });
+  // create notification
+  await prisma.notification.create({
+    data: {
+      userId: (await import("@/lib/session").then(m=>m.requireSession())).user.id as string,
+      title: `Withdrawal successful`,
+      body: `Your withdrawal was completed.`,
+    }
+  });
+
   redirect(`/accounts/${accountId}`);
 }
 

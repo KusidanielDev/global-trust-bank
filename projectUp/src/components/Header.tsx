@@ -11,6 +11,7 @@ import {
   Bars3Icon,
   XMarkIcon,
 } from "@heroicons/react/24/outline";
+import NotificationsBell from "./NotificationsBell";
 
 const NAV = [
   { name: "Dashboard", href: "/dashboard" },
@@ -82,22 +83,23 @@ export default function Header() {
 
           {/* Right: actions */}
           <div className="flex items-center gap-2">
-            <button
-              className="p-2 rounded-md text-blue-50 hover:text-white hover:bg-white/15 focus:outline-none focus:ring-2 focus:ring-white/40"
+            <Link
+              href="/search"
               aria-label="Search"
+              className="p-2 rounded-md text-blue-50 hover:text-white hover:bg-white/15 focus:outline-none focus:ring-2 focus:ring-white/40"
             >
               <MagnifyingGlassIcon className="h-6 w-6" />
-            </button>
-            <button
-              className="p-2 rounded-md text-blue-50 hover:text-white hover:bg-white/15 focus:outline-none focus:ring-2 focus:ring-white/40"
-              aria-label="Notifications"
+            </Link>
+
+            <NotificationsBell />
+
+            <Link
+              href="/profile"
+              className="ml-1 inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 hover:bg-white/20"
             >
-              <BellIcon className="h-6 w-6" />
-            </button>
-            <button className="ml-1 inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 hover:bg-white/20">
               <UserCircleIcon className="h-7 w-7 text-white" />
               <span className="hidden sm:inline text-sm">Account</span>
-            </button>
+            </Link>
           </div>
         </div>
       </div>

@@ -11,6 +11,15 @@ async function transfer(formData: FormData) {
     prisma.transaction.create({ data: { accountId: fromId, amount: -amount, date: new Date(), description: `Transfer to ${toId.slice(0,6)}…`, category: "Transfer" } }),
     prisma.transaction.create({ data: { accountId: toId, amount: amount, date: new Date(), description: `Transfer from ${fromId.slice(0,6)}…`, category: "Transfer" } }),
   ]);
+  // create notification
+  await prisma.notification.create({
+    data: {
+      userId: (await import("@/lib/session").then(m=>m.requireSession())).user.id as string,
+      title: `Transfer successful`,
+      body: `Your transfer has completed.`,
+    }
+  });
+
   redirect(`/accounts/${fromId}`);
 }
 
