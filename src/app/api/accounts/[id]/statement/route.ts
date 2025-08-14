@@ -1,19 +1,17 @@
+// src/app/api/accounts/[id]/statement/route.ts
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/session";
 import { prisma } from "@/lib/db";
 
-// ✅ Make sure this API route is never prerendered
+// ensure this API is never prerendered and runs on Node (Prisma-safe)
 export const dynamic = "force-dynamic";
-// ✅ Ensure we run on Node.js (Prisma isn't supported on Edge runtime)
 export const runtime = "nodejs";
-// (Optional) also disable ISR just in case
 export const revalidate = 0;
 
-type RouteContext = {
-  params: { id: string };
-};
-
-export async function GET(_req: Request, { params }: RouteContext) {
+export async function GET(
+  _req: Request,
+  { params }: { params: { id: string } } // ✅ inline the context type
+) {
   const { user } = await requireSession();
 
   const id = params.id;
