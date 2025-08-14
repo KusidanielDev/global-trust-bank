@@ -4,7 +4,9 @@ import { redirect } from "next/navigation";
 
 async function createUser(formData: FormData) {
   "use server";
-  const email = String(formData.get("email") || "").trim().toLowerCase();
+  const email = String(formData.get("email") || "")
+    .trim()
+    .toLowerCase();
   const name = String(formData.get("name") || "").trim();
   const password = String(formData.get("password") || "");
 
@@ -22,21 +24,41 @@ async function createUser(formData: FormData) {
 export default function SignupPage() {
   return (
     <div className="min-h-[60vh] grid place-items-center px-4">
-      <form action={createUser} className="w-full max-w-sm bg-white rounded-xl shadow p-6 space-y-4">
+      <form
+        action={createUser}
+        className="w-full max-w-sm bg-white rounded-xl shadow p-6 space-y-4"
+      >
         <h1 className="text-xl font-semibold">Open your account</h1>
         <div>
-          <label className="block text-sm">Full name</label>
-          <input name="name" className="border rounded w-full p-2" />
+          <label className="block text-sm font-medium text-gray-900">
+            Full name
+          </label>
+          <input
+            name="name"
+            className="border rounded w-full p-2 text-gray-900 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
+          />
         </div>
         <div>
           <label className="block text-sm">Email</label>
-          <input name="email" type="email" className="border rounded w-full p-2" required />
+          <input
+            name="email"
+            type="email"
+            className="border rounded w-full p-2"
+            required
+          />
         </div>
         <div>
           <label className="block text-sm">Password</label>
-          <input name="password" type="password" className="border rounded w-full p-2" required />
+          <input
+            name="password"
+            type="password"
+            className="border rounded w-full p-2"
+            required
+          />
         </div>
-        <button className="w-full bg-blue-600 text-white rounded py-2">Create account</button>
+        <button className="w-full bg-blue-600 text-white rounded py-2">
+          Create account
+        </button>
       </form>
     </div>
   );
