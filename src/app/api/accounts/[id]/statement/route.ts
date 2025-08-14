@@ -3,18 +3,19 @@ import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/session";
 import { prisma } from "@/lib/db";
 
-// ensure this API is never prerendered and runs on Node (Prisma-safe)
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const revalidate = 0;
 
-export async function GET(
-  _req: Request,
-  { params }: { params: { id: string } } // ✅ inline the context type
-) {
+export async function GET(_req: Request, context: any) {
   const { user } = await requireSession();
 
-  const id = params.id;
+  // Safely read and assert the param type inside the function
+  const id = (context?.params?.id ?? "") as string;
+  if (!id) {
+    return NextResponse.json({ error: "Missing id" }, { status: 400 });
+  }
+
   const acct = await prisma.bankAccount.findFirst({
     where: { id, userId: user.id },
   });
