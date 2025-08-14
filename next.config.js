@@ -18,19 +18,19 @@ const devCsp = [
 
 const prodCsp = [
   "default-src 'self'",
-  "script-src 'self'", // no inline/eval in prod
-  "style-src 'self' 'unsafe-inline'", // allow inline styles or move to non-inline if you want stricter
+  // allow inline/eval + vercel preview tooling
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://vercel.live",
+  "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self'",
-  // add your API origin here instead of localhost:
-  "connect-src 'self' https://sandbox.plaid.com https://api.yourbank.com",
+  // add Vercel Insights + Vercel Live + your APIs
+  "connect-src 'self' https://vitals.vercel-insights.com https://vercel.live https://sandbox.plaid.com https://api.yourbank.com",
   "frame-src 'self' https://sandbox.plaid.com",
   "worker-src 'self' blob:",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
   "frame-ancestors 'none'",
-  "upgrade-insecure-requests",
 ].join("; ");
 
 const nextConfig = {
