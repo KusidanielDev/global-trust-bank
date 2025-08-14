@@ -7,11 +7,15 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const revalidate = 0;
 
-export async function GET(_req: Request, context: any) {
+type Params = { id: string };
+
+export async function GET(
+  _req: Request,
+  { params }: { params: Promise<Params> } // 👈 params is a Promise in Next 15
+) {
   const { user } = await requireSession();
 
-  // Safely read and assert the param type inside the function
-  const id = (context?.params?.id ?? "") as string;
+  const { id } = await params; // 👈 await it
   if (!id) {
     return NextResponse.json({ error: "Missing id" }, { status: 400 });
   }

@@ -1,22 +1,12 @@
-// app/(app)/deposit/page.tsx
-// NOTE: We do NOT place "use server" at the top of this file so that we can
-// export non-function values like `export const dynamic = 'force-dynamic'`.
-// Server actions below include their *own* `"use server"` directive *inside*
-// the function body, which is the recommended App Router pattern.
-
 import React from "react";
 import { prisma } from "@/lib/db";
 import { requireSession } from "@/lib/session";
-// import { revalidatePath } from "next/cache";
-// import { redirect } from "next/navigation";
-import { toCents } from "@/lib/money";
-import type { Prisma, PrismaClient } from "@prisma/client";
 import { depositAction } from "./actions";
-
-type DbClient = PrismaClient | Prisma.TransactionClient;
 
 // Next.js App Router hint: this page should always render dynamically
 export const dynamic = "force-dynamic";
+
+export const runtime = "nodejs";
 
 /* ========================================================================== *
  * Utilities

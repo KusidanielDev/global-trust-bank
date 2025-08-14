@@ -12,8 +12,6 @@ import {
   CreditCardIcon,
   BuildingOfficeIcon,
   LightBulbIcon,
-  ArrowTrendingUpIcon,
-  ChatBubbleLeftRightIcon,
 } from "@heroicons/react/24/outline";
 
 export const dynamic = "force-static";

@@ -1,30 +1,10 @@
-// src/app/(app)/transfer/page.tsx
 import { transferAction } from "./actions";
 import { prisma } from "@/lib/db";
 import type { BankAccount } from "@prisma/client";
 import { requireSession } from "@/lib/session";
-import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
-import { toCents, fmtUSD } from "@/lib/money";
-import { randomUUID } from "crypto";
-import type { Prisma, PrismaClient } from "@prisma/client";
-type DbClient = PrismaClient | Prisma.TransactionClient;
 
 export const dynamic = "force-dynamic";
-// Prisma needs Node, not Edge:
 export const runtime = "nodejs";
-
-/** Recompute mirror balance from transactions for one account. */
-async function recomputeBalance(db: DbClient, accountId: string) {
-  const agg = await db.transaction.aggregate({
-    where: { accountId },
-    _sum: { amountCents: true },
-  });
-  await db.bankAccount.update({
-    where: { id: accountId },
-    data: { balanceCents: agg._sum.amountCents ?? 0 },
-  });
-}
 
 /** Single server action the form will post to. */
 
