@@ -28,29 +28,29 @@ export const dynamic = "force-dynamic";
  * Transaction rows — and it happens in the same database transaction to avoid
  * race conditions.
  */
-async function recomputeTx(db: DbClient, accountId: string) {
-  const sum = await db.transaction.aggregate({
-    where: { accountId },
-    _sum: { amountCents: true },
-  });
+// async function recomputeTx(db: DbClient, accountId: string) {
+//   const sum = await db.transaction.aggregate({
+//     where: { accountId },
+//     _sum: { amountCents: true },
+//   });
 
-  await db.bankAccount.update({
-    where: { id: accountId },
-    data: { balanceCents: sum._sum.amountCents ?? 0 },
-  });
-}
+//   await db.bankAccount.update({
+//     where: { id: accountId },
+//     data: { balanceCents: sum._sum.amountCents ?? 0 },
+//   });
+// }
 
 /**
  * Safely parse an amount to integer cents, throwing if invalid or non-positive.
  * Uses your shared `toCents` helper to keep input behavior consistent.
  */
-function parseAmountToCents(v: FormDataEntryValue | null): number {
-  const n = Number(v);
-  if (!Number.isFinite(n)) throw new Error("Amount is not a number");
-  const cents = toCents(n);
-  if (cents <= 0) throw new Error("Amount must be greater than 0");
-  return cents;
-}
+// function parseAmountToCents(v: FormDataEntryValue | null): number {
+//   const n = Number(v);
+//   if (!Number.isFinite(n)) throw new Error("Amount is not a number");
+//   const cents = toCents(n);
+//   if (cents <= 0) throw new Error("Amount must be greater than 0");
+//   return cents;
+// }
 
 /**
  * Simple currency formatter for display-only UI.
@@ -484,7 +484,7 @@ export default async function DepositPage() {
             <details className="group">
               <summary className="cursor-pointer list-none flex items-center justify-between">
                 <span className="font-medium">
-                  My deposit shows, but the balance didn’t change?
+                  My deposit shows, but the balance didnt change?
                 </span>
                 <span className="text-gray-400 group-open:rotate-180 transition-transform">
                   ⌄
@@ -534,7 +534,7 @@ export default async function DepositPage() {
         <footer className="mt-10 text-center text-xs text-gray-500">
           <p>
             © {new Date().getFullYear()} Global Trust Bank. All rights reserved.
-            Mobile deposits are subject to review and your institution’s funds
+            Mobile deposits are subject to review and your institutions funds
             availability policy.
           </p>
         </footer>
