@@ -2,7 +2,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 
-export async function GET(req: Request) {
+export async function GET(_req: Request) {
   const response = NextResponse.json(await prisma.transaction.findMany());
 
   // Add security headers specific to API

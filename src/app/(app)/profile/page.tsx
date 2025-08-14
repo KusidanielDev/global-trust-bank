@@ -7,14 +7,11 @@ export const dynamic = "force-dynamic";
 
 /* ----------------------------- helpers ----------------------------- */
 
-function isRedirect(e: unknown): boolean {
-  // Next.js redirect() throws an error with a 'digest' string
-  return !!(
-    e &&
-    typeof e === "object" &&
-    "digest" in (e as any) &&
-    typeof (e as any).digest === "string"
-  );
+function isRedirect(e: unknown): e is { digest: string } {
+  // Next.js redirect() throws an error that includes a string `digest`
+  if (typeof e !== "object" || e === null) return false;
+  const rec = e as Record<string, unknown>;
+  return typeof rec.digest === "string";
 }
 
 function decodeMsg(v?: string) {
@@ -35,7 +32,7 @@ async function updateName(formData: FormData) {
 
   if (name) {
     await prisma.user.update({
-      where: { id: (user as any).id },
+      where: { id: user.id },
       data: { name },
     });
     // surface a success toast/banner
@@ -57,7 +54,7 @@ async function changePassword(formData: FormData) {
 
   try {
     const db = await prisma.user.findUnique({
-      where: { id: (user as any).id },
+      where: { id: user.id },
     });
 
     if (!db) {
@@ -70,7 +67,7 @@ async function changePassword(formData: FormData) {
       redirect("/profile?error=Password+change+not+available+for+this+account");
     }
 
-    const ok = await bcrypt.compare(current, db.password as string);
+    const ok = await bcrypt.compare(current, db.password!);
     if (!ok) {
       redirect("/profile?error=Current+password+is+incorrect");
     }
@@ -107,7 +104,7 @@ export default async function ProfilePage({
     typeof sp.success === "string" ? decodeMsg(sp.success) : undefined;
 
   const dbUser = await prisma.user.findUnique({
-    where: { id: (user as any).id },
+    where: { id: user.id },
     select: {
       id: true,
       name: true,

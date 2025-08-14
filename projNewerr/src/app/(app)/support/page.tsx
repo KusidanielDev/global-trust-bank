@@ -1,1 +1,0 @@
-export default function Support(){return <div className="p-6 max-w-4xl mx-auto"><h1 className="text-2xl font-semibold mb-4">Support</h1><p className="text-gray-600">Contact support@horizonfirstbank.com</p></div>}

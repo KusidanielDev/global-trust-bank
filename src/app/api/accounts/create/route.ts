@@ -1,7 +1,8 @@
 import { prisma } from "@/lib/db";
 import { requireSession } from "@/lib/session";
-import { toCents } from "@/lib/money";
 import { NextRequest, NextResponse } from "next/server";
+import type { Prisma, PrismaClient } from "@prisma/client";
+type DbClient = PrismaClient | Prisma.TransactionClient;
 
 // Generate a unique 12-digit account number
 async function generateUniqueAccountNumber(): Promise<string> {
@@ -26,12 +27,12 @@ async function generateUniqueAccountNumber(): Promise<string> {
 }
 
 // Recompute account balance
-async function recomputeTx(tx: typeof prisma, accountId: string) {
-  const sum = await tx.transaction.aggregate({
+async function recomputeTx(db: DbClient, accountId: string) {
+  const sum = await db.transaction.aggregate({
     where: { accountId },
     _sum: { amountCents: true },
   });
-  await tx.bankAccount.update({
+  await db.bankAccount.update({
     where: { id: accountId },
     data: { balanceCents: sum._sum.amountCents ?? 0 },
   });
@@ -81,11 +82,8 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json({ accountId: newAccountId });
-  } catch (err: any) {
-    console.error("Account creation error:", err);
-    return NextResponse.json(
-      { error: err?.message || "Could not open account" },
-      { status: 400 }
-    );
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return NextResponse.json({ ok: false, error: message }, { status: 400 });
   }
 }

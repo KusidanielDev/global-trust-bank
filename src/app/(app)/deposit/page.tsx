@@ -7,9 +7,13 @@
 import React from "react";
 import { prisma } from "@/lib/db";
 import { requireSession } from "@/lib/session";
-import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
+// import { revalidatePath } from "next/cache";
+// import { redirect } from "next/navigation";
 import { toCents } from "@/lib/money";
+import type { Prisma, PrismaClient } from "@prisma/client";
+import { depositAction } from "./actions";
+
+type DbClient = PrismaClient | Prisma.TransactionClient;
 
 // Next.js App Router hint: this page should always render dynamically
 export const dynamic = "force-dynamic";
@@ -24,13 +28,13 @@ export const dynamic = "force-dynamic";
  * Transaction rows — and it happens in the same database transaction to avoid
  * race conditions.
  */
-async function recomputeTx(tx: typeof prisma, accountId: string) {
-  const sum = await tx.transaction.aggregate({
+async function recomputeTx(db: DbClient, accountId: string) {
+  const sum = await db.transaction.aggregate({
     where: { accountId },
     _sum: { amountCents: true },
   });
 
-  await tx.bankAccount.update({
+  await db.bankAccount.update({
     where: { id: accountId },
     data: { balanceCents: sum._sum.amountCents ?? 0 },
   });
@@ -72,55 +76,6 @@ function fmtUSD(cents?: number | null) {
  *  3) Recompute the account mirror inside the same DB transaction
  *  4) Revalidate + redirect to dashboard
  */
-export async function depositAction(formData: FormData) {
-  "use server";
-
-  const { user } = await requireSession();
-  const uid = (user as any).id as string;
-
-  // Accept either "accountId" (preferred) or legacy "account"
-  const accountId = String(
-    formData.get("accountId") || formData.get("account") || ""
-  ).trim();
-  const memo = String(formData.get("memo") || "").trim();
-  const amountCents = parseAmountToCents(formData.get("amount"));
-
-  if (!accountId) throw new Error("Missing account");
-
-  // Ensure the account exists and belongs to the current user
-  const acct = await prisma.bankAccount.findFirst({
-    where: { id: accountId, userId: uid },
-    select: {
-      id: true,
-      name: true,
-      accountNumber: true,
-      balanceCents: true,
-      type: true,
-      createdAt: true,
-      updatedAt: true,
-    },
-  });
-  if (!acct) throw new Error("Account not found");
-
-  // Atomic insert + recompute
-  await prisma.$transaction(async (tx) => {
-    await tx.transaction.create({
-      data: {
-        accountId,
-        amountCents: Math.abs(amountCents), // deposit = positive
-        description: memo || "Deposit",
-        category: "Deposit",
-        date: new Date(),
-      },
-    });
-
-    await recomputeTx(tx, accountId);
-  });
-
-  // Revalidate any relevant paths and redirect the user
-  revalidatePath("/dashboard");
-  redirect(`/accounts/${accountId}`);
-}
 
 /* ========================================================================== *
  * Page Component (Server)
@@ -133,7 +88,7 @@ export async function depositAction(formData: FormData) {
  */
 export default async function DepositPage() {
   const { user } = await requireSession();
-  const userId = (user as any).id as string;
+  const userId = user.id;
 
   // Use the BankAccount model consistently
   const accounts = await prisma.bankAccount.findMany({
@@ -165,7 +120,7 @@ export default async function DepositPage() {
               ledger within the same database transaction.
             </p>
             <p className="text-xs opacity-80 mt-2">
-              * Demo app: image scanning and fraud checks are simulated.
+              Image scanning and fraud checks are simulated.
             </p>
           </div>
 

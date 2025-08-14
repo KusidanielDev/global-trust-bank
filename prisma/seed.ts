@@ -1,16 +1,17 @@
 // prisma/seed.ts
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import bcrypt from "bcrypt";
 
+type DbClient = PrismaClient | Prisma.TransactionClient;
 const prisma = new PrismaClient();
 
 /** Recompute mirror balance *inside the same tx* */
-async function recomputeTx(tx: PrismaClient, accountId: string) {
-  const sum = await tx.transaction.aggregate({
+async function recomputeTx(db: DbClient, accountId: string) {
+  const sum = await db.transaction.aggregate({
     where: { accountId },
     _sum: { amountCents: true },
   });
-  await tx.bankAccount.update({
+  await db.bankAccount.update({
     where: { id: accountId },
     data: { balanceCents: sum._sum.amountCents ?? 0 },
   });

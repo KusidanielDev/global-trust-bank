@@ -3,17 +3,21 @@ import { prisma } from "@/lib/db";
 import { requireSession } from "@/lib/session";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import type { Prisma, PrismaClient } from "@prisma/client";
+import { withdrawAction } from "./actions";
+
+type DbClient = PrismaClient | Prisma.TransactionClient;
 
 /**
  * Transaction-safe recompute using the provided transaction client.
  * Keeps BankAccount.balanceCents mirrored to the sum of its transactions.
  */
-async function recomputeTx(tx: typeof prisma, accountId: string) {
-  const sum = await tx.transaction.aggregate({
+async function recomputeTx(db: DbClient, accountId: string) {
+  const sum = await db.transaction.aggregate({
     where: { accountId },
     _sum: { amountCents: true },
   });
-  await tx.bankAccount.update({
+  await db.bankAccount.update({
     where: { id: accountId },
     data: { balanceCents: sum._sum.amountCents ?? 0 },
   });
@@ -38,66 +42,6 @@ function parseAmountToCents(v: FormDataEntryValue | null): number {
  * - Creates a notification (inside the transaction for consistency)
  * - Revalidates dashboard and redirects back
  */
-export async function withdrawAction(formData: FormData) {
-  "use server";
-  const { user } = await requireSession();
-  const uid = (user as any).id as string;
-
-  const accountId = String(formData.get("accountId") || "").trim();
-  const amountCents = parseAmountToCents(formData.get("amount"));
-  const extDest = String(formData.get("externalAccount") || "").trim();
-  const memo = String(formData.get("memo") || "").trim();
-
-  if (!accountId) throw new Error("Missing account");
-
-  // Ensure the account belongs to this user
-  const acct = await prisma.bankAccount.findFirst({
-    where: { id: accountId, userId: uid },
-    select: { id: true, balanceCents: true, name: true, accountNumber: true },
-  });
-  if (!acct) throw new Error("Account not found");
-
-  // Optional: prevent overdraft (demo logic — tweak to your rules)
-  if ((acct.balanceCents ?? 0) - amountCents < 0) {
-    throw new Error("Insufficient funds");
-  }
-
-  await prisma.$transaction(async (tx) => {
-    // Create a negative transaction for withdrawal
-    await tx.transaction.create({
-      data: {
-        accountId,
-        amountCents: -Math.abs(amountCents),
-        description:
-          memo || (extDest ? `Withdrawal to ${extDest}` : "Withdrawal"),
-        category: "Withdrawal",
-        date: new Date(),
-      },
-    });
-
-    // Mirror recompute inside the same transaction
-    await recomputeTx(tx, accountId);
-
-    // Create a notification (tie it to the account owner)
-    await tx.notification.create({
-      data: {
-        userId: uid,
-        title: "Withdrawal successful",
-        body:
-          `We processed your withdrawal of ${(amountCents / 100).toLocaleString(
-            undefined,
-            {
-              style: "currency",
-              currency: "USD",
-            }
-          )}` + (extDest ? ` to ${extDest}.` : "."),
-      },
-    });
-  });
-
-  revalidatePath("/dashboard");
-  redirect(`/accounts/${accountId}`);
-}
 
 /** Next.js hint: dynamic rendering (we're using server data) */
 export const dynamic = "force-dynamic";
@@ -110,7 +54,7 @@ export const dynamic = "force-dynamic";
  */
 export default async function WithdrawPage() {
   const { user } = await requireSession();
-  const userId = (user as any).id as string;
+  const userId = user.id;
 
   // Fetch accounts owned by the user
   const accounts = await prisma.bankAccount.findMany({

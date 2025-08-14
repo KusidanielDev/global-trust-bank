@@ -395,7 +395,9 @@ export default function LandingPage() {
                   <div className="text-gray-600">{testimonial.role}</div>
                 </div>
               </div>
-              <p className="mt-4 text-gray-700 italic">"{testimonial.quote}"</p>
+              <p className="mt-4 text-gray-700 italic">
+                &quot;{testimonial.quote}&quot;
+              </p>
               <div className="mt-4 flex">
                 {[...Array(5)].map((_, i) => (
                   <svg

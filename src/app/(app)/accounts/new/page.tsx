@@ -54,9 +54,11 @@ export default function NewAccountPage() {
       // Navigate to the new account page
       router.push(`/accounts/${accountId}`);
       router.refresh();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Account creation error:", err);
-      setError(err?.message || "Could not open account.");
+      const msg =
+        err instanceof Error ? err.message : "Could not open account.";
+      setError(msg);
     } finally {
       setIsSubmitting(false);
     }

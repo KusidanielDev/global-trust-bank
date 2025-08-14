@@ -1,28 +1,36 @@
+// src/app/api/accounts/[id]/statement/route.ts
 import { NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "@/lib/db";
 import { requireSession } from "@/lib/session";
 
-const prisma = new PrismaClient();
-
-export async function GET(_: Request, { params }: { params: { id: string } }) {
+export async function GET(
+  _req: Request,
+  { params }: { params: Promise<{ id: string }> } // 👈 params is a Promise
+) {
   const { user } = await requireSession();
-  const id = params.id;
+  const { id } = await params; // 👈 await it
+
   const acct = await prisma.bankAccount.findFirst({
-    where: { id, userId: (user as any).id },
+    where: { id, userId: user.id },
   });
-  if (!acct) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!acct) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
 
   const txs = await prisma.transaction.findMany({
     where: { accountId: id },
     orderBy: { date: "asc" },
   });
+
   const rows = [["date", "description", "amount_cents"]];
-  for (const t of txs)
+  for (const t of txs) {
     rows.push([
       t.date.toISOString(),
       t.description ?? "Transaction",
       String(t.amountCents),
     ]);
+  }
+
   const csv = rows
     .map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","))
     .join("\n");

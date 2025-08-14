@@ -6,7 +6,7 @@ import Header from "@/components/Header";
 import PublicFooter from "@/components/footer/PublicFooter";
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
-  const session = await getServerSession(authOptions as any);
+  const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     redirect("/login");
   }
@@ -16,7 +16,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {children}
       </main>
-    <PublicFooter />
+      <PublicFooter />
     </div>
   );
 }

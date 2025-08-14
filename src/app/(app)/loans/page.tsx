@@ -12,11 +12,19 @@ function fmtUSD(cents: number) {
 
 export default async function LoansPage() {
   const { user } = await requireSession();
-  const userId = (user as any).id as string;
-  const loans = await prisma.loan.findMany({
+  const userId = user.id;
+  const rawLoans = await prisma.loan.findMany({
     where: { userId },
     orderBy: { createdAt: "desc" },
   });
+
+  // Enrich data with UI-friendly fields
+  const loans = rawLoans.map((loan) => ({
+    ...loan,
+    type: "Personal Loan", // or derive dynamically if you have a type column
+    amount: loan.amountCents / 100, // convert cents → dollars
+    apr: loan.rateBps / 100, // convert basis points → percentage
+  }));
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-blue-50 to-gray-50 py-8">
@@ -141,8 +149,8 @@ export default async function LoansPage() {
                         </svg>
                         <p className="text-lg mb-2">No active loans</p>
                         <p className="mb-4 max-w-md">
-                          You don't have any active loan accounts. Apply for a
-                          new loan to get started.
+                          You don&apos;t have any active loan accounts. Apply
+                          for a new loan to get started.
                         </p>
                         <Link
                           href="/loans/apply"

@@ -1,7 +1,8 @@
 import Link from "next/link";
+import type { Prisma, BankAccount, User } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { requireSession } from "@/lib/session";
-import { fmtUSD, getTxnCents } from "@/lib/money";
+import { fmtUSD } from "@/lib/money";
 import { SpendingPie, CashflowArea } from "@/components/Charts";
 
 export const dynamic = "force-dynamic";
@@ -17,10 +18,19 @@ export const dynamic = "force-dynamic";
  */
 export default async function DashboardPage() {
   const { user } = await requireSession();
-  const userId = (user as any)?.id as string;
+  const userId = user.id;
+
+  // Type for transactions including the joined account
+  type TxnWithAccount = Prisma.TransactionGetPayload<{
+    include: { account: true };
+  }>;
 
   // Fetch accounts, recent transactions (with account), and user
-  const [accounts, recent, userData] = await Promise.all([
+  const [accounts, recent, userData]: [
+    BankAccount[],
+    TxnWithAccount[],
+    User | null
+  ] = await Promise.all([
     prisma.bankAccount.findMany({
       where: { userId },
       orderBy: { updatedAt: "desc" },
@@ -46,20 +56,16 @@ export default async function DashboardPage() {
   const savings = accounts.filter((a) =>
     (a?.type || "").toLowerCase().includes("sav")
   );
-  const credit = accounts.filter((a) =>
-    (a?.type || "").toLowerCase().includes("credit")
-  );
 
   const checkingCents = checking.reduce((s, a) => s + pick(a), 0);
   const savingsCents = savings.reduce((s, a) => s + pick(a), 0);
-  const creditCents = credit.reduce((s, a) => s + pick(a), 0);
 
   // Spending by category (absolute outflows)
   const byCat = new Map<string, number>();
   for (const t of recent) {
-    const cents = Math.trunc(Number((t as any)?.amountCents ?? 0));
+    const cents = Math.trunc(Number(t.amountCents ?? 0));
     if (cents < 0) {
-      const k = (t as any)?.category || "Other";
+      const k = t.category || "Other";
       byCat.set(k, (byCat.get(k) ?? 0) + Math.abs(cents));
     }
   }
@@ -70,16 +76,16 @@ export default async function DashboardPage() {
 
   const monthlyOutCents = Array.from(byCat.values()).reduce((s, v) => s + v, 0);
   const monthlyInCents = recent
-    .filter((t) => Math.trunc(Number((t as any)?.amountCents ?? 0)) > 0)
-    .reduce((s, t) => s + Math.trunc(Number((t as any)?.amountCents ?? 0)), 0);
+    .filter((t) => Math.trunc(Number(t.amountCents ?? 0)) > 0)
+    .reduce((s, t) => s + Math.trunc(Number(t.amountCents ?? 0)), 0);
 
   // Daily cashflow -> running area (use last ~60 days of data in 'recent')
   const daily = new Map<string, number>();
 
   // Build daily cents safely (use t.amountCents, not getTxnCents(t))
   for (const t of recent) {
-    const dateIso = new Date(t.date as any).toISOString().slice(0, 10); // YYYY-MM-DD
-    const add = Number((t as any)?.amountCents ?? 0);
+    const dateIso = new Date(t.date).toISOString().slice(0, 10); // YYYY-MM-DD
+    const add = Number(t.amountCents ?? 0);
     const addSafe = Number.isFinite(add) ? Math.trunc(add) : 0; // ensure integer cents
     daily.set(dateIso, (daily.get(dateIso) ?? 0) + addSafe);
   }
@@ -105,10 +111,10 @@ export default async function DashboardPage() {
 
   // Small insights (safe, approximate)
   const inflowCount = recent.filter(
-    (t: any) => Number(t?.amountCents ?? 0) > 0
+    (t) => Number(t.amountCents ?? 0) > 0
   ).length;
   const outflowCount = recent.filter(
-    (t: any) => Number(t?.amountCents ?? 0) < 0
+    (t) => Number(t.amountCents ?? 0) < 0
   ).length;
 
   const topCat = spendingPie[0]?.name ?? "—";
@@ -202,7 +208,7 @@ export default async function DashboardPage() {
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   strokeWidth={2}
-                  d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+                  d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2H9a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
                 />
               </svg>
             }
@@ -453,13 +459,13 @@ export default async function DashboardPage() {
                     </td>
                     <td
                       className={`py-2 px-3 text-right font-medium ${
-                        (t as any)?.amountCents < 0
+                        (t.amountCents ?? 0) < 0
                           ? "text-red-600"
                           : "text-green-700"
                       }`}
                     >
-                      {(t as any)?.amountCents > 0 ? "+" : ""}
-                      {fmtUSD(Math.trunc(Number((t as any)?.amountCents ?? 0)))}
+                      {(t.amountCents ?? 0) > 0 ? "+" : ""}
+                      {fmtUSD(Math.trunc(Number(t.amountCents ?? 0)))}
                     </td>
                   </tr>
                 ))}

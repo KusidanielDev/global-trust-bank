@@ -6,7 +6,6 @@ import {
   ArrowLeftIcon,
   ArrowUpIcon,
   ArrowDownIcon,
-  BanknotesIcon,
   ClockIcon,
   CreditCardIcon,
   DocumentArrowDownIcon,
@@ -15,28 +14,24 @@ import {
   QrCodeIcon,
   ScaleIcon,
   SwatchIcon,
-  WalletIcon,
   EyeIcon,
-  EyeSlashIcon,
   ChevronRightIcon,
-  StarIcon,
   ShieldCheckIcon,
   CurrencyDollarIcon,
   ChartBarIcon,
   CalendarIcon,
-  MapPinIcon,
 } from "@heroicons/react/24/outline";
 
 export const dynamic = "force-dynamic";
 
-export default async function AccountDetail({
-  params,
-}: {
-  params: { id: string };
-}) {
+interface AccountPageProps {
+  params: Promise<{ id: string }>;
+}
+
+export default async function AccountDetail({ params }: AccountPageProps) {
   const { user } = await requireSession();
-  const userId = (user as any)?.id as string;
-  const id = params.id;
+  const userId = user.id;
+  const { id } = await params;
 
   const account = await prisma.bankAccount.findFirst({
     where: { id, userId },
@@ -66,7 +61,7 @@ export default async function AccountDetail({
               Account Not Found
             </h1>
             <p className="text-slate-600 mb-8 leading-relaxed">
-              The requested account could not be located or you don't have
+              The requested account could not be located or you don&apos;t have
               permission to view it.
             </p>
             <Link

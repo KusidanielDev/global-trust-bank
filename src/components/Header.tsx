@@ -5,7 +5,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import {
-  BellIcon,
   UserCircleIcon,
   MagnifyingGlassIcon,
   Bars3Icon,

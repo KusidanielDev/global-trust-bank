@@ -1,101 +1,36 @@
 // src/app/(app)/transfer/page.tsx
+import { transferAction } from "./actions";
 import { prisma } from "@/lib/db";
+import type { BankAccount } from "@prisma/client";
 import { requireSession } from "@/lib/session";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { toCents, fmtUSD } from "@/lib/money";
 import { randomUUID } from "crypto";
+import type { Prisma, PrismaClient } from "@prisma/client";
+type DbClient = PrismaClient | Prisma.TransactionClient;
 
 export const dynamic = "force-dynamic";
 // Prisma needs Node, not Edge:
 export const runtime = "nodejs";
 
 /** Recompute mirror balance from transactions for one account. */
-async function recomputeBalance(tx: typeof prisma, accountId: string) {
-  const agg = await tx.transaction.aggregate({
+async function recomputeBalance(db: DbClient, accountId: string) {
+  const agg = await db.transaction.aggregate({
     where: { accountId },
     _sum: { amountCents: true },
   });
-  await tx.bankAccount.update({
+  await db.bankAccount.update({
     where: { id: accountId },
     data: { balanceCents: agg._sum.amountCents ?? 0 },
   });
 }
 
 /** Single server action the form will post to. */
-export async function transferAction(formData: FormData) {
-  "use server"; // MUST be first statement inside the action
-
-  const { user } = await requireSession();
-  const userId = (user as any).id as string;
-
-  // Form fields must match the inputs in the JSX below
-  const fromId = String(formData.get("from") || "");
-  const toId = String(formData.get("to") || "");
-  const memo = String(formData.get("memo") || "").trim();
-  const amountCents = Math.abs(toCents(formData.get("amount")));
-
-  if (!fromId || !toId) throw new Error("Missing account ids");
-  if (fromId === toId) throw new Error("Choose two different accounts");
-  if (!Number.isFinite(amountCents) || amountCents <= 0)
-    throw new Error("Enter a valid amount greater than 0");
-
-  // Verify ownership + existence
-  const [from, to] = await Promise.all([
-    prisma.bankAccount.findFirst({ where: { id: fromId, userId } }),
-    prisma.bankAccount.findFirst({ where: { id: toId, userId } }),
-  ]);
-  if (!from || !to) throw new Error("Accounts not found");
-
-  const transferId = randomUUID();
-
-  await prisma.$transaction(async (tx) => {
-    // Ledger entries (double-entry across the two accounts)
-    await tx.transaction.createMany({
-      data: [
-        {
-          accountId: fromId,
-          amountCents: -amountCents,
-          description: memo || `Transfer to ${to.name}`,
-          category: "Transfer",
-          transferId,
-        },
-        {
-          accountId: toId,
-          amountCents: amountCents,
-          description: memo || `Transfer from ${from.name}`,
-          category: "Transfer",
-          transferId,
-        },
-      ],
-    });
-
-    // Recompute both balances from the ledger
-    await Promise.all([
-      recomputeBalance(tx, fromId),
-      recomputeBalance(tx, toId),
-    ]);
-
-    // Notify the user
-    await tx.notification.create({
-      data: {
-        userId,
-        title: "Transfer completed",
-        body: `You moved ${fmtUSD(amountCents)} from ${from.name} to ${
-          to.name
-        }.`,
-      },
-    });
-  });
-
-  // Refresh dashboard & bounce back there
-  revalidatePath("/dashboard");
-  redirect("/accounts");
-}
 
 export default async function TransferPage() {
   const { user } = await requireSession();
-  const userId = (user as any).id as string;
+  const userId = user.id;
 
   const accounts = await prisma.bankAccount.findMany({
     where: { userId },
@@ -142,7 +77,7 @@ export default async function TransferPage() {
                 defaultValue={accounts[0]?.id}
                 required
               >
-                {accounts.map((a: any) => (
+                {accounts.map((a: BankAccount) => (
                   <option key={a.id} value={a.id}>
                     {a.name} ••••{a.accountNumber?.slice(-4) ?? "0000"}
                   </option>
@@ -161,7 +96,7 @@ export default async function TransferPage() {
                 defaultValue={accounts[1]?.id}
                 required
               >
-                {accounts.map((a: any) => (
+                {accounts.map((a: BankAccount) => (
                   <option key={a.id} value={a.id}>
                     {a.name} ••••{a.accountNumber?.slice(-4) ?? "0000"}
                   </option>

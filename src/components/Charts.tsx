@@ -37,6 +37,9 @@ export function SpendingPie({ data }: { data: Point[] }) {
     () => safe.reduce((s, d) => s + toFinite(d.value), 0),
     [safe]
   );
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const [isTouched, setIsTouched] = useState(false);
+  const pieShadowId = useId().replace(/:/g, "");
 
   // early return for no data / zero total
   if (!safe.length || total <= 0) {
@@ -66,9 +69,6 @@ export function SpendingPie({ data }: { data: Point[] }) {
     );
   }
 
-  const [activeIndex, setActiveIndex] = useState<number | null>(null);
-  const [isTouched, setIsTouched] = useState(false);
-
   // Professional color palette with better contrast
   const COLORS = [
     "#3b82f6", // blue-500
@@ -86,7 +86,6 @@ export function SpendingPie({ data }: { data: Point[] }) {
   const cx = 100;
   const cy = 100;
   const donutHoleRadius = 48;
-  const pieShadowId = useId().replace(/:/g, "");
 
   let cumulative = 0;
   function arcPath(value: number) {

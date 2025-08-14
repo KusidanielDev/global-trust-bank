@@ -23,7 +23,7 @@ export default async function SearchPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { user } = await requireSession();
-  const userId = (user as any)?.id as string;
+  const userId = user.id;
 
   // Next.js 15 dynamic API – must await searchParams
   const sp = await searchParams;

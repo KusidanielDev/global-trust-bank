@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { requireSession } from "@/lib/session";
-import { fmtUSD, getBalCents } from "@/lib/money";
+import { fmtUSD } from "@/lib/money";
 
 export const dynamic = "force-dynamic";
 
 export default async function AccountsPage() {
   const { user } = await requireSession();
-  const userId = (user as any)?.id as string;
+  const userId = user.id;
 
   const accounts = await prisma.bankAccount.findMany({
     where: { userId },
@@ -120,8 +120,8 @@ export default async function AccountsPage() {
               No Accounts Yet
             </h3>
             <p className="text-gray-600 mb-6 max-w-md">
-              You don't have any active accounts. Open your first account to
-              start managing your finances.
+              You don&apos;t have any active accounts. Open your first account
+              to start managing your finances.
             </p>
             <Link
               href="/accounts/new" // ✅ Direct link here too

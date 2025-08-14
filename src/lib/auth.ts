@@ -27,14 +27,14 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   pages: { signIn: "/login" },
+
   callbacks: {
     async jwt({ token, user }) {
-      if (user?.id) (token as any).id = (user as any).id;
+      if (user?.id) token.id = user.id;
       return token;
     },
     async session({ session, token }) {
-      if (session.user && (token as any)?.id)
-        (session.user as any).id = (token as any).id as string;
+      if (session.user && token.id) session.user.id = token.id;
       return session;
     },
   },
