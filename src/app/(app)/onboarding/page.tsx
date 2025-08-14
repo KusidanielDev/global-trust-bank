@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 async function completeOnboarding() {
   "use server";
   const userId = (await import("@/lib/session").then(m=>m.requireSession().catch(()=>null)))?.user?.id || "demo";
-  const acc = await prisma.account.create({ data: { userId } , select: { id: true }});
+  const acc = await prisma.bankAccount.create({ data: { userId } , select: { id: true }});
   redirect(`/accounts/${acc.id}`);
 }
 

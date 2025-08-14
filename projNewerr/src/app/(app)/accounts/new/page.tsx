@@ -4,35 +4,48 @@ import { requireSession } from "@/lib/session";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { toCents } from "@/lib/money";
+
 import { Suspense } from "react";
 import { SubmitButton } from "./submit-button";
 
 export const dynamic = "force-dynamic";
 
-/** Generate a unique 10–12 digit account number (string) */
-async function generateUniqueAccountNumber() {
-  for (let i = 0; i < 5; i++) {
-    const candidate = Math.floor(
-      1_000_000_000 + Math.random() * 9_000_000_000
-    ).toString();
-    const exists = await prisma.account.findFirst({
+/** Generate a unique 12-digit account number (string), verifying uniqueness in DB */
+async function generateUniqueAccountNumber(): Promise<string> {
+  function gen12(): string {
+    let s = "";
+    for (let i = 0; i < 12; i++) s += Math.floor(Math.random() * 10);
+    if (s[0] === "0") s = "1" + s.slice(1); // avoid leading zero
+    return s;
+  }
+
+  // Try several random candidates; ensure not taken
+  for (let i = 0; i < 10; i++) {
+    const candidate = gen12();
+    const exists = await prisma.bankAccount.findFirst({
       where: { accountNumber: candidate },
+      select: { id: true },
     });
     if (!exists) return candidate;
   }
-  const fallback = `${Math.floor(
-    1_000_000_000 + Math.random() * 9_000_000_000
-  )}${Date.now().toString().slice(-3)}`;
-  return fallback.slice(0, 12);
+
+  // Ultra-rare fallback: append time digits
+  const fallback = (gen12() + Date.now().toString().slice(-2)).slice(0, 12);
+  return fallback;
 }
 
-/**
- * Server Action: Create account + optional opening deposit.
- * IMPORTANT:
- *  - Do NOT send `balance` or `balanceCents` to Account (your schema has neither).
- *  - Opening deposit is stored as a Transaction.
- *  - Transaction field can be either `amount` (Float) or `amountCents` (Int); we try both.
- */
+/** Recompute the mirrored balance inside the same DB transaction */
+async function recomputeTx(tx: typeof prisma, accountId: string) {
+  const sum = await tx.transaction.aggregate({
+    where: { accountId },
+    _sum: { amountCents: true },
+  });
+  await tx.bankAccount.update({
+    where: { id: accountId },
+    data: { balanceCents: sum._sum.amountCents ?? 0 },
+  });
+}
+
 async function createAccount(formData: FormData) {
   "use server";
 
@@ -51,67 +64,53 @@ async function createAccount(formData: FormData) {
       throw new Error("Opening deposit must be a valid non-negative amount");
     }
 
+    // Convert opening amount to cents (always store cents in DB)
+    const openingCents = toCents(openingDollars);
+
+    // Generate and enforce unique account number (schema must have accountNumber String? @unique)
     const accountNumber = await generateUniqueAccountNumber();
 
-    // ✅ Create account WITHOUT balance/balanceCents
-    const acc = await prisma.account.create({
-      data: {
-        userId,
-        name,
-        type,
-        accountNumber,
-        // (no balance fields, your schema doesn't have them)
-      },
-    });
+    // ✅ Atomic create + optional opening transaction + recompute
+    const newAccountId = await prisma.$transaction(async (tx) => {
+      // 1) Create the account
+      const acc = await tx.bankAccount.create({
+        data: {
+          userId,
+          name,
+          type,
+          accountNumber, // ✅ use account number now that schema supports it
+          // balanceCents is maintained by recompute; schema default is fine
+        },
+        select: { id: true },
+      });
 
-    // Optional opening deposit — try Transaction.amount first, then fallback to amountCents
-    if (openingDollars > 0) {
-      const tryAmount = async () => {
-        await prisma.transaction.create({
+      // 2) Optional opening deposit — cents ONLY
+      if (openingCents > 0) {
+        await tx.transaction.create({
           data: {
             accountId: acc.id,
             description: "Opening deposit",
-            amount: openingDollars, // try Float dollars
+            amountCents: openingCents, // ✅ cents only (no `amount`)
             date: new Date(),
             category: "Deposit",
-          } as any,
+          },
         });
-      };
-
-      const tryAmountCents = async () => {
-        await prisma.transaction.create({
-          data: {
-            accountId: acc.id,
-            description: "Opening deposit",
-            amountCents: toCents(openingDollars), // fallback to integer cents
-            date: new Date(),
-            category: "Deposit",
-          } as any,
-        });
-      };
-
-      try {
-        await tryAmount();
-      } catch (e: any) {
-        const msg = String(e?.message || "");
-        if (
-          msg.includes("Unknown argument `amount`") ||
-          msg.includes("Argument `amount`")
-        ) {
-          await tryAmountCents();
-        } else {
-          throw e;
-        }
       }
-    }
+
+      // 3) Mirror recompute inside the same DB transaction
+      await recomputeTx(tx, acc.id);
+
+      return acc.id;
+    });
 
     // Revalidate lists (accounts + dashboard summaries)
     revalidatePath("/accounts");
     revalidatePath("/dashboard");
 
     // Go to the new account’s detail page
-    redirect(`/accounts/${acc.id}`);
+    redirect(`/accounts/${newAccountId}`);
   } catch (err: any) {
+    if (err?.digest === "NEXT_REDIRECT") throw err;
     const msg = encodeURIComponent(err?.message || "Could not open account.");
     redirect(`/accounts/new?error=${msg}`);
   }
@@ -120,12 +119,16 @@ async function createAccount(formData: FormData) {
 export default async function NewAccountPage({
   searchParams,
 }: {
-  searchParams?: { error?: string };
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   await requireSession();
-  const error = searchParams?.error
-    ? decodeURIComponent(searchParams.error)
-    : null;
+
+  const sp = await searchParams; // 👈 await the async searchParams
+  const rawError = sp?.error;
+  const error =
+    typeof rawError === "string" && rawError.length
+      ? decodeURIComponent(rawError)
+      : null;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 py-8 px-4 sm:px-6">
@@ -467,12 +470,12 @@ export default async function NewAccountPage({
                     Cancel
                   </Link>
 
-                  <Suspense>
-                    <SubmitButton
-                      idleLabel="Open Account"
-                      pendingLabel="Creating…"
-                    />
-                  </Suspense>
+                  <button
+                    type="submit"
+                    className="px-6 py-3.5 rounded-xl bg-blue-600 text-white font-medium hover:bg-blue-700 transition-colors shadow-md"
+                  >
+                    Open Account
+                  </button>
                 </div>
               </div>
             </form>

@@ -1,45 +1,26 @@
-// Strongly-typed money helpers (no 'any')
+/** Convert a number or string (e.g., "12.34") to cents (integer). */
+export const toCents = (v: unknown): number => Math.round(Number(v || 0) * 100);
 
-export type NumberLike = number | string | null | undefined;
-
-export function toCents(v: NumberLike): number {
-  const n = typeof v === "number" ? v : Number(v ?? 0);
-  if (!Number.isFinite(n)) return 0;
-  return Math.round(n * 100);
-}
-
-export interface TransactionLike {
-  amount?: number | null;
-  amountCents?: number | null;
-}
-
-export function getTxnCents<T extends TransactionLike>(
-  t: T | null | undefined
-): number {
-  const ac = t?.amountCents;
-  if (typeof ac === "number" && Number.isFinite(ac)) return ac;
-  const amt = t?.amount;
-  return toCents(amt ?? 0);
-}
-
-export interface AccountLike {
-  balance?: number | null;
-  balanceCents?: number | null;
-}
-
-export function getBalCents<T extends AccountLike>(
-  a: T | null | undefined
-): number {
-  const bc = a?.balanceCents;
-  if (typeof bc === "number" && Number.isFinite(bc)) return bc;
-  const bal = a?.balance;
-  return toCents(bal ?? 0);
-}
-
-export function fmtUSD(cents: number): string {
-  const value = Number.isFinite(cents) ? cents : 0;
-  return (value / 100).toLocaleString("en-US", {
+/** Format cents (integer) as USD, e.g., 12345 -> "$123.45". */
+export const fmtUSD = (cents: number): string =>
+  ((Number.isFinite(cents) ? cents : 0) / 100).toLocaleString("en-US", {
     style: "currency",
     currency: "USD",
   });
-}
+
+/** Alias used around the app: same as toCents. */
+export const getTxnCents = (v: unknown): number => toCents(v);
+
+/**
+ * Sum a list of transactions to a balance in cents.
+ * Accepts undefined/null/non-array and safely returns 0.
+ */
+export const getBalCents = (
+  txs?: Array<{ amountCents?: number | null }> | null
+): number => {
+  if (!Array.isArray(txs) || txs.length === 0) return 0;
+  return txs.reduce((sum, t) => {
+    const v = Number(t?.amountCents);
+    return sum + (Number.isFinite(v) ? Math.trunc(v) : 0);
+  }, 0);
+};

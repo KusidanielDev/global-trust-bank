@@ -9,7 +9,7 @@ export default async function AccountsPage() {
   const { user } = await requireSession();
   const userId = (user as any)?.id as string;
 
-  const accounts = await prisma.account.findMany({
+  const accounts = await prisma.bankAccount.findMany({
     where: { userId },
     orderBy: { updatedAt: "desc" },
   });
@@ -53,7 +53,7 @@ export default async function AccountsPage() {
 
                   <div className="mt-4">
                     <p className="text-3xl font-extrabold text-gray-900">
-                      {fmtUSD(getBalCents(account))}
+                      {fmtUSD(account.balanceCents ?? 0)}
                     </p>
                     <p className="text-sm text-gray-500 mt-1">
                       Last updated:{" "}

@@ -5,19 +5,22 @@ import { useFormStatus } from "react-dom";
 export function SubmitButton({
   idleLabel = "Submit",
   pendingLabel = "Working…",
+  isPending = false,
 }: {
   idleLabel?: string;
   pendingLabel?: string;
+  isPending?: boolean;
 }) {
   const { pending } = useFormStatus();
+  const showSpinner = pending || isPending;
 
   return (
     <button
       type="submit"
-      disabled={pending}
+      disabled={showSpinner}
       className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 text-white font-medium hover:from-blue-700 hover:to-blue-800 transition-all shadow-md hover:shadow-lg enabled:transform enabled:hover:-translate-y-0.5 disabled:opacity-60"
     >
-      {pending && (
+      {showSpinner && (
         <svg
           className="h-5 w-5 animate-spin"
           viewBox="0 0 24 24"
@@ -39,7 +42,7 @@ export function SubmitButton({
           />
         </svg>
       )}
-      <span>{pending ? pendingLabel : idleLabel}</span>
+      <span>{showSpinner ? pendingLabel : idleLabel}</span>
     </button>
   );
 }

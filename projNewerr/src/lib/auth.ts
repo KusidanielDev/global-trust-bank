@@ -1,13 +1,14 @@
 import type { NextAuthOptions } from "next-auth";
-import CredentialsProvider from "next-auth/providers/credentials";
-import { PrismaAdapter } from "@next-auth/prisma-adapter";
-import { prisma } from "./db";
+import Credentials from "next-auth/providers/credentials";
+import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcrypt";
 
+const prisma = new PrismaClient();
+
 export const authOptions: NextAuthOptions = {
-  adapter: PrismaAdapter(prisma),
+  session: { strategy: "jwt" },
   providers: [
-    CredentialsProvider({
+    Credentials({
       name: "Credentials",
       credentials: {
         email: { label: "Email", type: "text" },
@@ -18,26 +19,23 @@ export const authOptions: NextAuthOptions = {
         const user = await prisma.user.findUnique({
           where: { email: credentials.email },
         });
-        if (!user || !user.password) return null;
+        if (!user) return null;
         const ok = await bcrypt.compare(credentials.password, user.password);
-        return ok
-          ? { id: user.id, email: user.email, name: user.name ?? null }
-          : null;
+        if (!ok) return null;
+        return { id: user.id, email: user.email, name: user.name ?? undefined };
       },
     }),
   ],
-  session: { strategy: "jwt" },
-  pages: { signIn: "/login", error: "/error" },
+  pages: { signIn: "/login" },
   callbacks: {
     async jwt({ token, user }) {
-      if (user) token.id = (user as any).id;
+      if (user?.id) (token as any).id = (user as any).id;
       return token;
     },
     async session({ session, token }) {
-      if (session.user && token?.id)
-        (session.user as any).id = token.id as string;
+      if (session.user && (token as any)?.id)
+        (session.user as any).id = (token as any).id as string;
       return session;
     },
   },
 };
-// ❌ Do NOT: export default NextAuth(authOptions)

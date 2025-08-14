@@ -1,131 +1,66 @@
+"use client";
+
 import Link from "next/link";
-import { prisma } from "@/lib/db";
-import { requireSession } from "@/lib/session";
-import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
-import { toCents } from "@/lib/money";
-import { Suspense } from "react";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { SubmitButton } from "./submit-button";
+import { toCents } from "@/lib/money";
 
-export const dynamic = "force-dynamic";
+export default function NewAccountPage() {
+  const router = useRouter();
+  const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-/** Generate a unique 10–12 digit account number (string) */
-async function generateUniqueAccountNumber() {
-  for (let i = 0; i < 5; i++) {
-    const candidate = Math.floor(
-      1_000_000_000 + Math.random() * 9_000_000_000
-    ).toString();
-    const exists = await prisma.account.findFirst({
-      where: { accountNumber: candidate },
-    });
-    if (!exists) return candidate;
-  }
-  const fallback = `${Math.floor(
-    1_000_000_000 + Math.random() * 9_000_000_000
-  )}${Date.now().toString().slice(-3)}`;
-  return fallback.slice(0, 12);
-}
+  async function createAccount(formData: FormData) {
+    setIsSubmitting(true);
+    setError(null);
 
-/**
- * Server Action: Create account + optional opening deposit.
- * IMPORTANT:
- *  - Do NOT send `balance` or `balanceCents` to Account (your schema has neither).
- *  - Opening deposit is stored as a Transaction.
- *  - Transaction field can be either `amount` (Float) or `amountCents` (Int); we try both.
- */
-async function createAccount(formData: FormData) {
-  "use server";
+    try {
+      // Get form data
+      const name = String(formData.get("name") || "").trim();
+      const type = String(formData.get("type") || "").trim();
+      const openingDollars = Number(formData.get("opening") || 0);
 
-  try {
-    const { user } = await requireSession();
-    const userId = (user as any)?.id as string;
-    if (!userId) throw new Error("Not authenticated");
-
-    const name = String(formData.get("name") || "").trim();
-    const type = String(formData.get("type") || "").trim();
-    const openingDollars = Number(formData.get("opening") || 0);
-
-    if (!name) throw new Error("Account name is required");
-    if (!type) throw new Error("Account type is required");
-    if (Number.isNaN(openingDollars) || openingDollars < 0) {
-      throw new Error("Opening deposit must be a valid non-negative amount");
-    }
-
-    const accountNumber = await generateUniqueAccountNumber();
-
-    // ✅ Create account WITHOUT balance/balanceCents
-    const acc = await prisma.account.create({
-      data: {
-        userId,
-        name,
-        type,
-        accountNumber,
-        // (no balance fields, your schema doesn't have them)
-      },
-    });
-
-    // Optional opening deposit — try Transaction.amount first, then fallback to amountCents
-    if (openingDollars > 0) {
-      const tryAmount = async () => {
-        await prisma.transaction.create({
-          data: {
-            accountId: acc.id,
-            description: "Opening deposit",
-            amount: openingDollars, // try Float dollars
-            date: new Date(),
-            category: "Deposit",
-          } as any,
-        });
-      };
-
-      const tryAmountCents = async () => {
-        await prisma.transaction.create({
-          data: {
-            accountId: acc.id,
-            description: "Opening deposit",
-            amountCents: toCents(openingDollars), // fallback to integer cents
-            date: new Date(),
-            category: "Deposit",
-          } as any,
-        });
-      };
-
-      try {
-        await tryAmount();
-      } catch (e: any) {
-        const msg = String(e?.message || "");
-        if (
-          msg.includes("Unknown argument `amount`") ||
-          msg.includes("Argument `amount`")
-        ) {
-          await tryAmountCents();
-        } else {
-          throw e;
-        }
+      // Validate inputs
+      if (!name) throw new Error("Account name is required");
+      if (!type) throw new Error("Account type is required");
+      if (Number.isNaN(openingDollars) || openingDollars < 0) {
+        throw new Error("Opening deposit must be a valid non-negative amount");
       }
+
+      // Convert to cents
+      const openingCents = toCents(openingDollars);
+
+      // Call API to create account
+      const response = await fetch("/api/accounts/create", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name,
+          type,
+          openingCents,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to create account");
+      }
+
+      const { accountId } = await response.json();
+
+      // Navigate to the new account page
+      router.push(`/accounts/${accountId}`);
+      router.refresh();
+    } catch (err: any) {
+      console.error("Account creation error:", err);
+      setError(err?.message || "Could not open account.");
+    } finally {
+      setIsSubmitting(false);
     }
-
-    // Revalidate lists (accounts + dashboard summaries)
-    revalidatePath("/accounts");
-    revalidatePath("/dashboard");
-
-    // Go to the new account’s detail page
-    redirect(`/accounts/${acc.id}`);
-  } catch (err: any) {
-    const msg = encodeURIComponent(err?.message || "Could not open account.");
-    redirect(`/accounts/new?error=${msg}`);
   }
-}
-
-export default async function NewAccountPage({
-  searchParams,
-}: {
-  searchParams?: { error?: string };
-}) {
-  await requireSession();
-  const error = searchParams?.error
-    ? decodeURIComponent(searchParams.error)
-    : null;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 py-8 px-4 sm:px-6">
@@ -176,7 +111,9 @@ export default async function NewAccountPage({
                     <input
                       name="name"
                       required
-                      className="w-full pl-12 py-3.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                      className="w-full pl-12 py-3.5 rounded-xl border border-gray-300 bg-white
+              text-gray-900 placeholder-gray-500
+              focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
                       placeholder="e.g. Everyday Checking"
                     />
                     <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -467,12 +404,11 @@ export default async function NewAccountPage({
                     Cancel
                   </Link>
 
-                  <Suspense>
-                    <SubmitButton
-                      idleLabel="Open Account"
-                      pendingLabel="Creating…"
-                    />
-                  </Suspense>
+                  <SubmitButton
+                    idleLabel="Open Account"
+                    pendingLabel="Creating account..."
+                    isPending={isSubmitting}
+                  />
                 </div>
               </div>
             </form>

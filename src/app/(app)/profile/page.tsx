@@ -3,15 +3,43 @@ import { prisma } from "@/lib/db";
 import bcrypt from "bcrypt";
 import { redirect } from "next/navigation";
 
+export const dynamic = "force-dynamic";
+
+/* ----------------------------- helpers ----------------------------- */
+
+function isRedirect(e: unknown): boolean {
+  // Next.js redirect() throws an error with a 'digest' string
+  return !!(
+    e &&
+    typeof e === "object" &&
+    "digest" in (e as any) &&
+    typeof (e as any).digest === "string"
+  );
+}
+
+function decodeMsg(v?: string) {
+  if (!v) return undefined;
+  try {
+    return decodeURIComponent(v.replace(/\+/g, " "));
+  } catch {
+    return v;
+  }
+}
+
+/* --------------------------- server actions --------------------------- */
+
 async function updateName(formData: FormData) {
   "use server";
   const { user } = await requireSession();
   const name = String(formData.get("name") || "").trim();
+
   if (name) {
     await prisma.user.update({
       where: { id: (user as any).id },
       data: { name },
     });
+    // surface a success toast/banner
+    redirect("/profile?success=Name+updated");
   }
   redirect("/profile");
 }
@@ -19,29 +47,91 @@ async function updateName(formData: FormData) {
 async function changePassword(formData: FormData) {
   "use server";
   const { user } = await requireSession();
-  const current = String(formData.get("current") || "");
-  const next = String(formData.get("next") || "");
-  if (!current || !next) throw new Error("Missing fields");
 
-  const db = await prisma.user.findUnique({ where: { id: (user as any).id } });
-  if (!db) throw new Error("User not found");
-  const ok = await bcrypt.compare(current, db.password);
-  if (!ok) throw new Error("Current password is incorrect");
+  const current = String(formData.get("current") || "").trim();
+  const next = String(formData.get("next") || "").trim();
 
-  const hash = await bcrypt.hash(next, 10);
-  await prisma.user.update({ where: { id: db.id }, data: { password: hash } });
-  redirect("/profile");
+  if (!current || !next) {
+    redirect("/profile?error=Missing+fields");
+  }
+
+  try {
+    const db = await prisma.user.findUnique({
+      where: { id: (user as any).id },
+    });
+
+    if (!db) {
+      redirect("/profile?error=User+not+found");
+    }
+
+    if (!db?.password) {
+      // If your users can be created without a password (e.g., OAuth),
+      // treat as not allowed to change here.
+      redirect("/profile?error=Password+change+not+available+for+this+account");
+    }
+
+    const ok = await bcrypt.compare(current, db.password as string);
+    if (!ok) {
+      redirect("/profile?error=Current+password+is+incorrect");
+    }
+
+    const hash = await bcrypt.hash(next, 10);
+    await prisma.user.update({
+      where: { id: db.id },
+      data: { password: hash },
+    });
+
+    redirect("/profile?success=Password+updated+successfully");
+  } catch (err) {
+    // If this was a redirect(), let it bubble so Next can handle it
+    if (isRedirect(err)) throw err;
+    console.error("Password change error:", err);
+    redirect("/profile?error=Could+not+update+password");
+  }
 }
 
-export default async function ProfilePage() {
+/* ------------------------------ page ------------------------------ */
+
+export default async function ProfilePage({
+  searchParams,
+}: {
+  // Next.js 15: this is a Promise and must be awaited
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { user } = await requireSession();
+
+  // ✅ await the dynamic API before reading
+  const sp = await searchParams;
+  const error = typeof sp.error === "string" ? decodeMsg(sp.error) : undefined;
+  const success =
+    typeof sp.success === "string" ? decodeMsg(sp.success) : undefined;
+
   const dbUser = await prisma.user.findUnique({
     where: { id: (user as any).id },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      createdAt: true,
+      password: false as unknown as undefined, // never select password back
+    },
   });
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-blue-50 to-gray-50 py-8">
       <div className="container mx-auto px-4 max-w-4xl">
+        {/* Banners */}
+        {error && (
+          <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-red-700">
+            {error}
+          </div>
+        )}
+        {success && (
+          <div className="mb-6 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-green-700">
+            {success}
+          </div>
+        )}
+
         {/* Profile Header */}
         <div className="bg-gradient-to-r from-blue-800 to-blue-900 text-white rounded-2xl p-6 mb-8">
           <div className="flex flex-col md:flex-row items-center">
@@ -207,6 +297,7 @@ export default async function ProfilePage() {
 
           {/* Right Column - Forms */}
           <div className="lg:col-span-2">
+            {/* Personal Info */}
             <div className="bg-white rounded-xl shadow-lg p-6">
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-bold text-gray-900 flex items-center">
@@ -299,6 +390,7 @@ export default async function ProfilePage() {
               </form>
             </div>
 
+            {/* Password & Security */}
             <div className="bg-white rounded-xl shadow-lg p-6 mt-8">
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-bold text-gray-900 flex items-center">
@@ -332,6 +424,7 @@ export default async function ProfilePage() {
                     <input
                       type="password"
                       name="current"
+                      required
                       className="w-full rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500 shadow-sm p-3 pl-10"
                       placeholder="Enter your current password"
                     />
@@ -360,6 +453,7 @@ export default async function ProfilePage() {
                     <input
                       type="password"
                       name="next"
+                      required
                       className="w-full rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500 shadow-sm p-3 pl-10"
                       placeholder="Create a new password"
                     />
@@ -378,6 +472,7 @@ export default async function ProfilePage() {
                       />
                     </svg>
                   </div>
+
                   <div className="mt-2 grid grid-cols-2 gap-3">
                     <div className="flex items-center">
                       <div className="w-2 h-2 bg-gray-300 rounded-full mr-2"></div>
@@ -412,6 +507,7 @@ export default async function ProfilePage() {
               </form>
             </div>
 
+            {/* Blue banner */}
             <div className="mt-8 bg-gradient-to-r from-blue-800 to-blue-900 rounded-xl p-6 text-white">
               <div className="flex flex-col md:flex-row items-center">
                 <div className="mb-6 md:mb-0 md:mr-6">
@@ -442,6 +538,7 @@ export default async function ProfilePage() {
                 </div>
               </div>
             </div>
+            {/* end right column */}
           </div>
         </div>
       </div>

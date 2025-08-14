@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { requireSession } from "@/lib/session";
-import { fmtUSD, getBalCents, getTxnCents } from "@/lib/money";
+import { fmtUSD } from "@/lib/money";
 import {
   ArrowLeftIcon,
   ArrowUpIcon,
@@ -38,7 +38,21 @@ export default async function AccountDetail({
   const userId = (user as any)?.id as string;
   const id = params.id;
 
-  const account = await prisma.account.findFirst({ where: { id, userId } });
+  const account = await prisma.bankAccount.findFirst({
+    where: { id, userId },
+    include: {
+      transactions: {
+        orderBy: { date: "desc" },
+        select: {
+          id: true,
+          amountCents: true,
+          description: true,
+          category: true,
+          date: true,
+        },
+      },
+    },
+  });
 
   if (!account) {
     return (
@@ -76,15 +90,18 @@ export default async function AccountDetail({
 
   // Calculate insights
   const recentTx = tx.slice(0, 30);
+
   const monthlySpending = recentTx
-    .filter((t) => getTxnCents(t) < 0)
-    .reduce((sum, t) => sum + Math.abs(getTxnCents(t)), 0);
+    .filter((t) => (t.amountCents ?? 0) < 0)
+    .reduce((sum, t) => sum + Math.abs(t.amountCents ?? 0), 0);
+
   const monthlyIncome = recentTx
-    .filter((t) => getTxnCents(t) > 0)
-    .reduce((sum, t) => sum + getTxnCents(t), 0);
+    .filter((t) => (t.amountCents ?? 0) > 0)
+    .reduce((sum, t) => sum + (t.amountCents ?? 0), 0);
+
   const largestExpense = recentTx
-    .filter((t) => getTxnCents(t) < 0)
-    .reduce((max, t) => Math.max(max, Math.abs(getTxnCents(t))), 0);
+    .filter((t) => (t.amountCents ?? 0) < 0)
+    .reduce((max, t) => Math.max(max, Math.abs(t.amountCents ?? 0)), 0);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
@@ -150,7 +167,7 @@ export default async function AccountDetail({
                   Available Balance
                 </div>
                 <div className="text-3xl sm:text-4xl md:text-5xl font-bold bg-gradient-to-r from-slate-900 to-blue-900 bg-clip-text text-transparent mb-2">
-                  {fmtUSD(getBalCents(account))}
+                  {fmtUSD(account.balanceCents ?? 0)}
                 </div>
                 <div className="text-slate-500 text-sm">
                   Last updated:{" "}
@@ -413,12 +430,12 @@ export default async function AccountDetail({
                     <div className="flex items-center mb-3 xs:mb-0">
                       <div
                         className={`p-3 sm:p-4 rounded-2xl mr-3 sm:mr-5 shadow-lg ${
-                          getTxnCents(t) < 0
+                          (t.amountCents ?? 0) < 0
                             ? "bg-gradient-to-br from-red-500 to-red-600"
                             : "bg-gradient-to-br from-emerald-500 to-emerald-600"
                         }`}
                       >
-                        {getTxnCents(t) < 0 ? (
+                        {(t.amountCents ?? 0) < 0 ? (
                           <ArrowUpIcon className="h-4 w-4 sm:h-5 sm:w-5 text-white" />
                         ) : (
                           <ArrowDownIcon className="h-4 w-4 sm:h-5 sm:w-5 text-white" />
@@ -458,16 +475,16 @@ export default async function AccountDetail({
                     <div className="text-right">
                       <div
                         className={`font-bold text-lg sm:text-xl ${
-                          getTxnCents(t) < 0
+                          (t.amountCents ?? 0) < 0
                             ? "text-red-600"
                             : "text-emerald-600"
                         }`}
                       >
-                        {getTxnCents(t) < 0 ? "-" : "+"}
-                        {fmtUSD(Math.abs(getTxnCents(t)))}
+                        {(t.amountCents ?? 0) < 0 ? "-" : "+"}
+                        {fmtUSD(Math.abs(t.amountCents ?? 0))}
                       </div>
                       <div className="text-slate-500 text-xs sm:text-sm mt-1">
-                        {getTxnCents(t) < 0 ? "Debit" : "Credit"}
+                        {(t.amountCents ?? 0) < 0 ? "Debit" : "Credit"}
                       </div>
                     </div>
                   </div>

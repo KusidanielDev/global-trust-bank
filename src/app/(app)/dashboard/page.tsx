@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { requireSession } from "@/lib/session";
-import { fmtUSD, getBalCents, getTxnCents } from "@/lib/money";
+import { fmtUSD, getTxnCents } from "@/lib/money";
 import { SpendingPie, CashflowArea } from "@/components/Charts";
 
 export const dynamic = "force-dynamic";
@@ -21,7 +21,7 @@ export default async function DashboardPage() {
 
   // Fetch accounts, recent transactions (with account), and user
   const [accounts, recent, userData] = await Promise.all([
-    prisma.account.findMany({
+    prisma.bankAccount.findMany({
       where: { userId },
       orderBy: { updatedAt: "desc" },
     }),
@@ -35,7 +35,10 @@ export default async function DashboardPage() {
   ]);
 
   // ----- Rollups (defensive: everything in cents) -----
-  const totalCents = accounts.reduce((s, a) => s + getBalCents(a), 0);
+  const pick = (a: { balanceCents?: number | null }) =>
+    Math.trunc(a?.balanceCents ?? 0);
+
+  const totalCents = accounts.reduce((s, a) => s + pick(a), 0);
 
   const checking = accounts.filter((a) =>
     (a?.type || "").toLowerCase().includes("check")
@@ -47,14 +50,14 @@ export default async function DashboardPage() {
     (a?.type || "").toLowerCase().includes("credit")
   );
 
-  const checkingCents = checking.reduce((s, a) => s + getBalCents(a), 0);
-  const savingsCents = savings.reduce((s, a) => s + getBalCents(a), 0);
-  const creditCents = credit.reduce((s, a) => s + getBalCents(a), 0);
+  const checkingCents = checking.reduce((s, a) => s + pick(a), 0);
+  const savingsCents = savings.reduce((s, a) => s + pick(a), 0);
+  const creditCents = credit.reduce((s, a) => s + pick(a), 0);
 
   // Spending by category (absolute outflows)
   const byCat = new Map<string, number>();
   for (const t of recent) {
-    const cents = getTxnCents(t);
+    const cents = Math.trunc(Number((t as any)?.amountCents ?? 0));
     if (cents < 0) {
       const k = (t as any)?.category || "Other";
       byCat.set(k, (byCat.get(k) ?? 0) + Math.abs(cents));
@@ -67,28 +70,47 @@ export default async function DashboardPage() {
 
   const monthlyOutCents = Array.from(byCat.values()).reduce((s, v) => s + v, 0);
   const monthlyInCents = recent
-    .filter((t) => getTxnCents(t) > 0)
-    .reduce((s, t) => s + getTxnCents(t), 0);
+    .filter((t) => Math.trunc(Number((t as any)?.amountCents ?? 0)) > 0)
+    .reduce((s, t) => s + Math.trunc(Number((t as any)?.amountCents ?? 0)), 0);
 
   // Daily cashflow -> running area (use last ~60 days of data in 'recent')
   const daily = new Map<string, number>();
+
+  // Build daily cents safely (use t.amountCents, not getTxnCents(t))
   for (const t of recent) {
-    const d = new Date(t.date).toISOString().slice(0, 10);
-    daily.set(d, (daily.get(d) ?? 0) + getTxnCents(t));
+    const dateIso = new Date(t.date as any).toISOString().slice(0, 10); // YYYY-MM-DD
+    const add = Number((t as any)?.amountCents ?? 0);
+    const addSafe = Number.isFinite(add) ? Math.trunc(add) : 0; // ensure integer cents
+    daily.set(dateIso, (daily.get(dateIso) ?? 0) + addSafe);
   }
-  const days = Array.from(daily.keys()).sort();
+
+  // Sort days and compute running dollars, guarding against NaN
+  const daysSorted = Array.from(daily.keys()).filter(Boolean).sort(); // YYYY-MM-DD sorts lexicographically
   let running = 0;
-  const cashflowArea = days.map((d) => {
-    running += daily.get(d) ?? 0;
-    return { name: d.slice(5), value: running / 100 }; // dollars
+
+  const cashflowArea = daysSorted.map((d) => {
+    const incRaw = Number(daily.get(d));
+    const inc = Number.isFinite(incRaw) ? incRaw : 0;
+    running += inc;
+
+    const dollars = running / 100;
+    return {
+      name: d.slice(5), // "MM-DD"
+      value: Number.isFinite(dollars) ? dollars : 0, // chart-safe number
+    };
   });
 
   // Last 8 transactions for quick table
   const lastTransactions = recent.slice(0, 8);
 
   // Small insights (safe, approximate)
-  const inflowCount = recent.filter((t) => getTxnCents(t) > 0).length;
-  const outflowCount = recent.filter((t) => getTxnCents(t) < 0).length;
+  const inflowCount = recent.filter(
+    (t: any) => Number(t?.amountCents ?? 0) > 0
+  ).length;
+  const outflowCount = recent.filter(
+    (t: any) => Number(t?.amountCents ?? 0) < 0
+  ).length;
+
   const topCat = spendingPie[0]?.name ?? "—";
   const topCatAmt = spendingPie[0]?.value ?? 0;
 
@@ -119,7 +141,7 @@ export default async function DashboardPage() {
             <div className="flex items-center gap-2">
               <Link
                 href="/accounts/new"
-                className="px-4 py-2 rounded-lg border hover:bg-gray-50"
+                className="px-4 py-2.5 rounded-lg font-medium text-white bg-blue-900 hover:bg-blue-800 active:bg-gray-900 focus:ring-2 focus:ring-blue-400 transition-colors duration-200 shadow"
               >
                 Open account
               </Link>
@@ -358,7 +380,7 @@ export default async function DashboardPage() {
                   </div>
                   <div className="mt-4 flex items-end justify-between">
                     <p className="text-2xl font-bold text-gray-900">
-                      {fmtUSD(getBalCents(account))}
+                      {fmtUSD(account.balanceCents ?? 0)}
                     </p>
                     <div className="text-xs px-2 py-1 bg-white text-blue-600 rounded border">
                       Active
@@ -408,30 +430,36 @@ export default async function DashboardPage() {
                   <th className="py-2 px-3 text-right font-medium">Amount</th>
                 </tr>
               </thead>
-              <tbody className="divide-y">
+              <tbody className="divide-y text-gray-900">
                 {lastTransactions.map((t) => (
                   <tr key={t.id} className="hover:bg-gray-50">
-                    <td className="py-2 px-3">
+                    <td className="py-2 px-3 text-gray-900 font-medium">
                       {new Date(t.date).toLocaleDateString("en-US", {
                         month: "short",
                         day: "numeric",
                         year: "numeric",
                       })}
                     </td>
-                    <td className="py-2 px-3">{t.description || "—"}</td>
+                    <td className="py-2 px-3 text-gray-900 font-semibold">
+                      {t.description || "—"}
+                    </td>
                     <td className="py-2 px-3">
-                      {(t.account?.name || "Account") + " "}
-                      <span className="text-gray-500">
+                      <span className="text-gray-900 font-medium">
+                        {t.account?.name || "Account"}
+                      </span>{" "}
+                      <span className="text-gray-600">
                         ••••{t.account?.accountNumber?.slice(-4) || "0000"}
                       </span>
                     </td>
                     <td
                       className={`py-2 px-3 text-right font-medium ${
-                        getTxnCents(t) < 0 ? "text-red-600" : "text-green-700"
+                        (t as any)?.amountCents < 0
+                          ? "text-red-600"
+                          : "text-green-700"
                       }`}
                     >
-                      {getTxnCents(t) > 0 ? "+" : ""}
-                      {fmtUSD(getTxnCents(t))}
+                      {(t as any)?.amountCents > 0 ? "+" : ""}
+                      {fmtUSD(Math.trunc(Number((t as any)?.amountCents ?? 0)))}
                     </td>
                   </tr>
                 ))}
@@ -506,7 +534,7 @@ function KPI({
   trend,
 }: {
   label: string;
-  value: string;
+  value: React.ReactNode; // or: string | number
   hint?: string;
   icon?: React.ReactNode;
   trend?: "up" | "down";
