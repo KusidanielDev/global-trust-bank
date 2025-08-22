@@ -7,6 +7,12 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum AccountStatus {
+  ACTIVE
+  FROZEN
+  CLOSED
+}
+
 model User {
   id            String         @id @default(cuid())
   name          String?
@@ -64,6 +70,8 @@ model BankAccount {
   type          String        @default("checking")
   accountNumber String?       @unique // add this (optional for smooth migration)
   balanceCents  Int           @default(0)
+  status        AccountStatus @default(ACTIVE)
+  closedAt      DateTime?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
   transactions  Transaction[]

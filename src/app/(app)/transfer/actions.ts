@@ -1,87 +1,149 @@
+// app/(app)/transfer/actions.ts
 "use server";
 
 import { prisma } from "@/lib/db";
-import { requireSession } from "@/lib/session";
-import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
+import { z } from "zod";
 import { toCents, fmtUSD } from "@/lib/money";
-import { randomUUID } from "crypto";
+import { revalidatePath } from "next/cache";
 
-export async function transferAction(formData: FormData) {
-  const { user } = await requireSession();
-  const userId = user.id;
+export type TransferResult = { ok?: string; err?: string };
 
-  const fromId = String(formData.get("from") || "");
-  const toId = String(formData.get("to") || "");
-  const memo = String(formData.get("memo") || "").trim();
-  const amountCents = Math.abs(toCents(formData.get("amount")));
+const FormSchema = z.object({
+  mode: z.enum(["internal", "external"]),
+  from: z.string().min(1),
+  to: z.string().optional(), // internal only
+  amount: z.string().min(1),
+  memo: z.string().optional().default(""),
+  extRecipientName: z.string().optional(),
+  extBankName: z.string().optional(),
+  extAccountNumber: z.string().optional(),
+  extRouting: z.string().optional(),
+});
 
-  if (!fromId || !toId) throw new Error("Missing account ids");
-  if (fromId === toId) throw new Error("Choose two different accounts");
-  if (!Number.isFinite(amountCents) || amountCents <= 0)
-    throw new Error("Enter a valid amount greater than 0");
+// useFormState signature: (prev, formData)
+export async function performTransfer(
+  _prev: TransferResult,
+  formData: FormData
+): Promise<TransferResult> {
+  try {
+    const parsed = FormSchema.safeParse(Object.fromEntries(formData.entries()));
+    if (!parsed.success) return { err: "Invalid form input" };
 
-  const [from, to] = await Promise.all([
-    prisma.bankAccount.findFirst({ where: { id: fromId, userId } }),
-    prisma.bankAccount.findFirst({ where: { id: toId, userId } }),
-  ]);
-  if (!from || !to) throw new Error("Accounts not found");
+    const {
+      mode,
+      from,
+      to,
+      amount,
+      memo,
+      extRecipientName,
+      extBankName,
+      extAccountNumber,
+    } = parsed.data;
 
-  const transferId = randomUUID();
+    const amountCents = toCents(amount);
+    if (!Number.isFinite(amountCents) || amountCents <= 0) {
+      return { err: "Invalid amount" };
+    }
 
-  await prisma.$transaction(async (tx) => {
-    await tx.transaction.createMany({
-      data: [
-        {
-          accountId: fromId,
-          amountCents: -amountCents,
-          description: memo || `Transfer to ${to!.name}`,
-          category: "Transfer",
-          transferId,
+    const fromAcct = await prisma.bankAccount.findUnique({
+      where: { id: from },
+      include: { user: { select: { id: true, name: true, email: true } } },
+    });
+    if (!fromAcct) return { err: "Source account not found" };
+    if (fromAcct.balanceCents < amountCents)
+      return { err: "Insufficient funds" };
+
+    if (mode === "internal") {
+      if (!to || to === from)
+        return { err: "Choose a different destination account" };
+
+      const toAcct = await prisma.bankAccount.findUnique({
+        where: { id: to },
+        include: { user: { select: { id: true } } },
+      });
+      if (!toAcct) return { err: "Destination account not found" };
+      if (toAcct.user.id !== fromAcct.user.id) {
+        return { err: "Destination account is not yours" };
+      }
+
+      await prisma.$transaction(async (tx) => {
+        await tx.bankAccount.update({
+          where: { id: fromAcct.id },
+          data: { balanceCents: { decrement: amountCents } },
+        });
+        await tx.bankAccount.update({
+          where: { id: toAcct.id },
+          data: { balanceCents: { increment: amountCents } },
+        });
+
+        // IMPORTANT: negatives for money out; positives for money in
+        await tx.transaction.createMany({
+          data: [
+            {
+              accountId: fromAcct.id,
+              amountCents: -amountCents,
+              description:
+                (memo && memo.trim()) || `Transfer to ${toAcct.name}`,
+            },
+            {
+              accountId: toAcct.id,
+              amountCents: amountCents,
+              description:
+                (memo && memo.trim()) || `Transfer from ${fromAcct.name}`,
+            },
+          ],
+        });
+
+        await tx.notification.create({
+          data: {
+            userId: fromAcct.user.id,
+            title: "Transfer successful",
+            body: `${fmtUSD(amountCents)} moved to ${toAcct.name}.`,
+          },
+        });
+      });
+
+      revalidatePath("/transfer");
+      return { ok: "Transfer completed" };
+    }
+
+    // External (debit only)
+    const recipient = [extRecipientName, extBankName]
+      .filter(Boolean)
+      .join(" • ");
+    const tail = extAccountNumber ? ` ••••${extAccountNumber.slice(-4)}` : "";
+
+    await prisma.$transaction(async (tx) => {
+      await tx.bankAccount.update({
+        where: { id: fromAcct.id },
+        data: { balanceCents: { decrement: amountCents } },
+      });
+
+      await tx.transaction.create({
+        data: {
+          accountId: fromAcct.id,
+          amountCents: -amountCents, // NEGATIVE for outflow
+          description:
+            (memo && memo.trim()) ||
+            `External transfer to ${recipient || "recipient"}${tail}`,
         },
-        {
-          accountId: toId,
-          amountCents: amountCents,
-          description: memo || `Transfer from ${from!.name}`,
-          category: "Transfer",
-          transferId,
+      });
+
+      await tx.notification.create({
+        data: {
+          userId: fromAcct.user.id,
+          title: "Transfer submitted",
+          body: `${fmtUSD(amountCents)} sent to ${
+            recipient || "recipient"
+          }${tail}.`,
         },
-      ],
+      });
     });
 
-    // recompute balances
-    const [aggFrom, aggTo] = await Promise.all([
-      tx.transaction.aggregate({
-        where: { accountId: fromId },
-        _sum: { amountCents: true },
-      }),
-      tx.transaction.aggregate({
-        where: { accountId: toId },
-        _sum: { amountCents: true },
-      }),
-    ]);
-    await Promise.all([
-      tx.bankAccount.update({
-        where: { id: fromId },
-        data: { balanceCents: aggFrom._sum.amountCents ?? 0 },
-      }),
-      tx.bankAccount.update({
-        where: { id: toId },
-        data: { balanceCents: aggTo._sum.amountCents ?? 0 },
-      }),
-    ]);
-
-    await tx.notification.create({
-      data: {
-        userId,
-        title: "Transfer completed",
-        body: `You moved ${fmtUSD(amountCents)} from ${from!.name} to ${
-          to!.name
-        }.`,
-      },
-    });
-  });
-
-  revalidatePath("/dashboard");
-  redirect("/accounts");
+    revalidatePath("/transfer");
+    return { ok: "External transfer submitted" };
+  } catch (e) {
+    console.error("performTransfer error:", e);
+    return { err: "Unexpected error. Please try again." };
+  }
 }
